@@ -22,7 +22,9 @@ cd bi-analyst-project-96
 
 ## Использование
 
-<!-- Добавьте примеры запуска и запись asciinema — именно это смотрит работодатель -->
+SQL-запросы для визуализации: `dashboard.sql` (по одному запросу на график в Superset).
+
+Подключение к БД: `marketingdb_v2` (PostgreSQL). Фильтры дашборда: `visit_date`, `utm_source`, `utm_medium`, `utm_campaign`.
 
 ---
 
