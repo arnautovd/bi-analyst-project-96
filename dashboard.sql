@@ -366,3 +366,194 @@ left join ad_costs as costs
         and lpc.utm_source = costs.utm_source
         and lpc.utm_medium = costs.utm_medium
         and lpc.utm_campaign = costs.utm_campaign;
+
+-- 9. Окупаемость каналов (для слайда «Есть ли окупаемые каналы?»)
+with attributed_sessions as (
+    select
+        s.visitor_id,
+        s.source as utm_source,
+        l.amount,
+        l.status_id,
+        l.closing_reason,
+        row_number() over (
+            partition by s.visitor_id
+            order by s.visit_date desc
+        ) as rn
+    from sessions as s
+    left join leads as l
+        on
+            s.visitor_id = l.visitor_id
+            and s.visit_date <= l.created_at
+    where s.medium in (
+        'cpc', 'cpm', 'cpa', 'youtube', 'cpp', 'tg', 'social'
+    )
+),
+
+channel_revenue as (
+    select
+        utm_source,
+        count(*) as visitors_count,
+        count(*) filter (where closing_reason = 'successful_sale' or status_id = 142)
+            as purchases_count,
+        sum(amount) filter (
+            where closing_reason = 'successful_sale' or status_id = 142
+        ) as revenue
+    from attributed_sessions
+    where rn = 1
+    group by utm_source
+),
+
+channel_cost as (
+    select utm_source, sum(daily_spent) as total_cost
+    from (
+        select utm_source, daily_spent from vk_ads
+        union all
+        select utm_source, daily_spent from ya_ads
+    ) as ads
+    group by utm_source
+)
+
+select
+    r.utm_source,
+    r.visitors_count,
+    r.purchases_count,
+    coalesce(r.revenue, 0) as revenue,
+    coalesce(c.total_cost, 0) as total_cost,
+    round(
+        (coalesce(r.revenue, 0) - coalesce(c.total_cost, 0))
+        / nullif(coalesce(c.total_cost, 0), 0)
+        * 100,
+        1
+    ) as roi_pct
+from channel_revenue as r
+left join channel_cost as c on r.utm_source = c.utm_source
+where coalesce(c.total_cost, 0) > 0 or coalesce(r.revenue, 0) > 0
+order by roi_pct desc nulls last;
+
+-- 10. ROI по кампаниям (для рекомендаций отключить / масштабировать)
+with attributed_sessions as (
+    select
+        s.visitor_id,
+        date(s.visit_date) as visit_date,
+        s.source as utm_source,
+        s.medium as utm_medium,
+        s.campaign as utm_campaign,
+        l.amount,
+        l.status_id,
+        l.closing_reason,
+        row_number() over (
+            partition by s.visitor_id
+            order by s.visit_date desc
+        ) as rn
+    from sessions as s
+    left join leads as l
+        on
+            s.visitor_id = l.visitor_id
+            and s.visit_date <= l.created_at
+    where
+        s.medium in (
+            'cpc', 'cpm', 'cpa', 'youtube', 'cpp', 'tg', 'social'
+        )
+        and s.source in ('yandex', 'vk')
+),
+
+daily_lpc as (
+    select
+        visit_date,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        count(visitor_id) as visitors_count,
+        sum(amount) filter (
+            where closing_reason = 'successful_sale' or status_id = 142
+        ) as revenue
+    from attributed_sessions
+    where rn = 1
+    group by 1, 2, 3, 4
+),
+
+ad_costs as (
+    select
+        date(campaign_date) as campaign_date,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        sum(daily_spent) as total_cost
+    from vk_ads
+    group by 1, 2, 3, 4
+    union all
+    select
+        date(campaign_date),
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        sum(daily_spent)
+    from ya_ads
+    group by 1, 2, 3, 4
+)
+
+select
+    l.utm_source,
+    l.utm_campaign,
+    sum(l.visitors_count) as visitors_count,
+    sum(l.revenue) as revenue,
+    sum(coalesce(c.total_cost, 0)) as total_cost,
+    round(
+        (sum(l.revenue) - sum(coalesce(c.total_cost, 0)))
+        / nullif(sum(coalesce(c.total_cost, 0)), 0)
+        * 100,
+        1
+    ) as roi_pct
+from daily_lpc as l
+left join ad_costs as c
+    on
+        l.visit_date = c.campaign_date
+        and l.utm_source = c.utm_source
+        and l.utm_medium = c.utm_medium
+        and l.utm_campaign = c.utm_campaign
+where l.utm_medium = 'cpc'
+group by l.utm_source, l.utm_campaign
+having sum(coalesce(c.total_cost, 0)) > 5000
+order by roi_pct desc;
+
+-- 11. 90-й перцентиль: дней от платного клика до продажи (срок оценки кампании)
+with last_paid_visit as (
+    select
+        s.visitor_id,
+        max(s.visit_date) as paid_visit_at
+    from sessions as s
+    where s.medium in (
+        'cpc', 'cpm', 'cpa', 'youtube', 'cpp', 'tg', 'social'
+    )
+    group by s.visitor_id
+),
+
+sales as (
+    select
+        lp.paid_visit_at,
+        l.created_at
+    from last_paid_visit as lp
+    inner join leads as l
+        on
+            lp.visitor_id = l.visitor_id
+            and l.created_at >= lp.paid_visit_at
+    where l.status_id = 142 or l.closing_reason = 'successful_sale'
+)
+
+select
+    percentile_disc(0.9) within group (
+        order by extract(day from (created_at - paid_visit_at))
+    ) as p90_days_click_to_sale
+from sales;
+
+-- 12. Органика vs платный Яндекс по неделям (корреляция / halo-эффект)
+select
+    date_trunc('week', s.visit_date)::date as visit_week,
+    count(distinct s.visitor_id) filter (where s.medium = 'organic') as organic_visitors,
+    count(distinct s.visitor_id) filter (
+        where s.medium = 'cpc' and s.source = 'yandex'
+    ) as yandex_cpc_visitors
+from sessions as s
+where s.visit_date >= '2023-06-01' and s.visit_date < '2023-07-01'
+group by 1
+order by 1;

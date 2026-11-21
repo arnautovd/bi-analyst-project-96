@@ -26,6 +26,8 @@ SQL-запросы для визуализации: `dashboard.sql` (по одн
 
 Подключение к БД: `marketingdb_v2` (PostgreSQL). Фильтры дашборда: `visit_date`, `utm_source`, `utm_medium`, `utm_campaign`.
 
+Презентация для маркетинга: `presentation.pdf`. Ссылка на дашборд — в файле `dashboard_url.txt` (обновите на URL Superset и пересоберите: `python scripts/build_presentation.py`).
+
 ---
 
 <details>
