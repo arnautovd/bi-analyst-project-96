@@ -22,7 +22,7 @@ cd bi-analyst-project-96
 
 ## Использование
 
-SQL-запросы для визуализации: `dashboard.sql` (по одному запросу на график в Superset).
+**Основной скрипт проекта:** `dashboard.sql` — запросы для дашборда и презентации (по одному `SELECT` на график в Superset).
 
 Подключение к БД: `marketingdb_v2` (PostgreSQL). Фильтры дашборда: `visit_date`, `utm_source`, `utm_medium`, `utm_campaign`.
 

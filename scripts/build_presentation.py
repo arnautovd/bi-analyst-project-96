@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "presentation_charts"
@@ -33,8 +34,21 @@ def save_roi_chart() -> Path:
     roi = [423, 563, 329, 145, -100]
     colors = ["#2e7d32" if v > 0 else "#c62828" for v in roi]
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.barh(campaigns, roi, color=colors)
+    bars = ax.barh(campaigns, roi, color=colors)
     ax.axvline(0, color="#333", linewidth=0.8)
+    for bar, value in zip(bars, roi):
+        x = bar.get_width()
+        offset = 8 if x >= 0 else -8
+        ha = "left" if x >= 0 else "right"
+        ax.text(
+            x + offset,
+            bar.get_y() + bar.get_height() / 2,
+            f"{value:+d}%",
+            va="center",
+            ha=ha,
+            fontsize=11,
+            fontweight="bold",
+        )
     ax.set_xlabel("ROI, %")
     ax.set_title("Окупаемость ключевых кампаний (июнь 2023)")
     fig.tight_layout()
@@ -51,7 +65,20 @@ def save_funnel_chart() -> Path:
     ax.bar(stages, values, color=["#1565c0", "#42a5f5", "#66bb6a"])
     ax.set_title("Воронка: Яндекс + VK, июнь 2023")
     for i, v in enumerate(values):
-        ax.text(i, v + max(values) * 0.02, f"{v:,}".replace(",", " "), ha="center")
+        ax.text(
+            i,
+            v / 2,
+            f"{v:,}".replace(",", " "),
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=12,
+            fontweight="bold",
+        )
+    conv_vl = values[1] / values[0] * 100
+    conv_lp = values[2] / values[1] * 100
+    ax.text(0.5, max(values) * 0.92, f"→ {conv_vl:.1f}%", ha="center", fontsize=11)
+    ax.text(1.5, max(values) * 0.92, f"→ {conv_lp:.1f}%", ha="center", fontsize=11)
     fig.tight_layout()
     path = CHARTS / "funnel.png"
     fig.savefig(path, dpi=150)
@@ -78,6 +105,22 @@ def add_bullet_slide(prs: Presentation, title: str, bullets: list[str]) -> None:
         p.text = line
         p.level = 0
         p.font.size = Pt(20)
+
+
+def add_dashboard_link_slide(prs: Presentation, url: str) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Ссылка на дашборд"
+    tf = slide.placeholders[1].text_frame
+    tf.clear()
+    p = tf.paragraphs[0]
+    p.text = "Интерактивный дашборд (Apache Superset / Preset):"
+    p.font.size = Pt(20)
+    p2 = tf.add_paragraph()
+    run = p2.add_run()
+    run.text = url
+    run.font.size = Pt(18)
+    run.font.color.rgb = RGBColor(0x15, 0x65, 0xC0)
+    run.hyperlink.address = url
 
 
 def add_image_slide(prs: Presentation, title: str, image: Path, note: str = "") -> None:
@@ -107,14 +150,15 @@ def build() -> None:
         ],
     )
 
+    dash_url = dashboard_url()
+    add_dashboard_link_slide(prs, dash_url)
     add_bullet_slide(
         prs,
         "Дашборд",
         [
-            f"Ссылка: {dashboard_url()}",
             "На дашборде: визиты, лиды, расходы, конверсии, CPU, CPL, CPPU, ROI.",
             "Фильтры: период, utm_source, utm_medium, utm_campaign.",
-            "SQL-запросы лежат в файле dashboard.sql в репозитории проекта.",
+            "SQL-запросы для графиков: файл dashboard.sql в репозитории проекта.",
         ],
     )
 
@@ -175,10 +219,11 @@ def build() -> None:
 
     add_bullet_slide(
         prs,
-        "Выводы",
+        "Выводы аналитика",
         [
             "Масштабировать окупаемые связки utm_source + campaign из дашборда.",
             "Сократить расходы на кампании с ROI < 0 и CPL выше медианы.",
+            "Оценивать кампании через 25+ дней; до этого смотреть только CPL и объём лидов.",
             "Использовать дашборд для еженедельных решений по бюджету.",
         ],
     )

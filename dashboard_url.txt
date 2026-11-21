@@ -1,4 +1,4 @@
-https://github.com/arnautovd/bi-analyst-project-96
+https://github.com/arnautovd/bi-analyst-project-96/blob/main/dashboard.sql
 
-# Замените на публичную ссылку дашборда в Superset/Preset после публикации.
-# Пример: https://superset.example.com/superset/dashboard/12/
+# После публикации дашборда в Superset/Preset замените строку выше на публичную ссылку.
+# Затем: python scripts/build_presentation.py и экспорт presentation.pdf
